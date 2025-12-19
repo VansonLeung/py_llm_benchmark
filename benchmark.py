@@ -39,10 +39,27 @@ import sys
 import json
 import logging
 from datetime import datetime
+import base64
+from pathlib import Path
 
 # Usage example
 # Default generation knobs per model tier.
 # OpenAI-compatible parameters: max_tokens, temperature, top_p, frequency_penalty, presence_penalty
+
+# Default vision prompts for VLM benchmarking
+DEFAULT_VISION_PROMPTS = [
+    "Describe this image in detail.",
+    "What objects do you see in this image?",
+    "What is the main subject of this image?",
+    "What colors are prominent in this image?",
+    "What is happening in this scene?",
+    "Analyze the composition of this image.",
+    "What emotions or mood does this image convey?",
+    "Identify any text visible in this image.",
+    "What is the setting or location shown?",
+    "What activities are taking place?",
+]
+
 DEFAULT_OPTIONS_BY_MODEL: Dict[str, Dict[str, Any]] = {
     "qwen3:0.6b": { "max_tokens": 256, "temperature": 0.6, "top_p": 0.9, "frequency_penalty": 0.2, "presence_penalty": 0.1 },
     "qwen3:1.7b": { "max_tokens": 256, "temperature": 0.55, "top_p": 0.9, "frequency_penalty": 0.15, "presence_penalty": 0.05 },
@@ -417,10 +434,94 @@ def validate_openai_response(response_data: Dict[str, Any]) -> Tuple[bool, str, 
     except (KeyError, IndexError, AttributeError):
         return False, "", ""
 
+def encode_image_to_base64(image_path: str) -> str:
+    """Encode an image file to base64 string
+    
+    Args:
+        image_path: Path to the image file
+        
+    Returns:
+        Base64 encoded string of the image
+    """
+    with open(image_path, "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode('utf-8')
+
+def get_image_mime_type(image_path: str) -> str:
+    """Get MIME type from image file extension
+    
+    Args:
+        image_path: Path to the image file
+        
+    Returns:
+        MIME type string (e.g., 'image/jpeg')
+    """
+    ext = Path(image_path).suffix.lower()
+    mime_types = {
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+        '.gif': 'image/gif',
+        '.bmp': 'image/bmp',
+        '.webp': 'image/webp'
+    }
+    return mime_types.get(ext, 'image/jpeg')  # default to jpeg
+
 class APIPerformanceTester:
-    def __init__(self, base_url: str, options: Optional[Dict[str, Any]] = None):
+    def __init__(self, base_url: str, options: Optional[Dict[str, Any]] = None, 
+                 vision_mode: bool = False, image_paths: Optional[List[str]] = None,
+                 vision_prompts: Optional[List[str]] = None):
         self.base_url = base_url
         self.request_options = options or {}
+        self.vision_mode = vision_mode
+        self.image_paths = image_paths or []
+        self.vision_prompts = vision_prompts or DEFAULT_VISION_PROMPTS
+        
+        # Pre-encode images for performance
+        self.encoded_images = []
+        if self.vision_mode and self.image_paths:
+            print(f"Encoding {len(self.image_paths)} image(s) for VLM testing...")
+            for img_path in self.image_paths:
+                try:
+                    encoded = encode_image_to_base64(img_path)
+                    mime_type = get_image_mime_type(img_path)
+                    self.encoded_images.append({
+                        'path': img_path,
+                        'data': encoded,
+                        'mime_type': mime_type
+                    })
+                    print(f"  ✓ Encoded: {img_path}")
+                except Exception as e:
+                    print(f"  ✗ Failed to encode {img_path}: {e}")
+            print()
+
+    def create_message_content(self, text_prompt: str, image_data: Optional[Dict[str, str]] = None) -> Any:
+        """Create message content for text-only or vision requests
+        
+        Args:
+            text_prompt: The text prompt
+            image_data: Optional dict with 'data' (base64) and 'mime_type'
+            
+        Returns:
+            String for text-only or List of content items for vision
+        """
+        if not self.vision_mode or not image_data:
+            # Text-only mode
+            return text_prompt
+        
+        # Vision mode - multimodal content
+        content = [
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{image_data['mime_type']};base64,{image_data['data']}"
+                }
+            },
+            {
+                "type": "text",
+                "text": text_prompt
+            }
+        ]
+        return content
 
     def benchmark_inference(self, model: str, prompts: List[str], iterations: int = 10) -> Dict:
         """Benchmark inference performance using OpenAI-compatible API"""
@@ -428,7 +529,8 @@ class APIPerformanceTester:
         memory_usage = []
         benchmark_start_time = None
 
-        print(f"Running inference benchmark for {model} ({iterations} iterations)...")
+        mode_desc = "VLM" if self.vision_mode else "text"
+        print(f"Running inference benchmark for {model} ({iterations} iterations, {mode_desc} mode)...")
 
         # Warm-up with a simple prompt that doesn't interfere with test prompts
         def warmup_request():
@@ -474,10 +576,19 @@ class APIPerformanceTester:
 
             # Cycle through prompts
             current_prompt = prompts[iteration_idx % len(prompts)]
+            
+            # For vision mode, also cycle through images
+            image_data = None
+            if self.vision_mode and self.encoded_images:
+                image_idx = iteration_idx % len(self.encoded_images)
+                image_data = self.encoded_images[image_idx]
+
+            # Create message content (text or multimodal)
+            message_content = self.create_message_content(current_prompt, image_data)
 
             payload = {
                 "model": model,
-                "messages": [{"role": "user", "content": current_prompt}],
+                "messages": [{"role": "user", "content": message_content}],
                 "stream": False
             }
             if self.request_options:
@@ -559,7 +670,8 @@ class APIPerformanceTester:
         num_batches = (iterations + concurrent - 1) // concurrent  # Round up
         total_requests = iterations
 
-        print(f"Running throughput benchmark for {model} ({iterations} requests in {num_batches} batches, {concurrent} concurrent per batch)...")
+        mode_desc = "VLM" if self.vision_mode else "text"
+        print(f"Running throughput benchmark for {model} ({iterations} requests in {num_batches} batches, {concurrent} concurrent per batch, {mode_desc} mode)...")
 
         # Warm-up with a simple prompt that doesn't interfere with test prompts
         def warmup_request():
@@ -602,6 +714,12 @@ class APIPerformanceTester:
             # Use sequential prompts
             prompt_idx = request_num % len(prompts)
             prompt = prompts[prompt_idx]
+            
+            # For vision mode, also cycle through images
+            image_data = None
+            if self.vision_mode and self.encoded_images:
+                image_idx = request_num % len(self.encoded_images)
+                image_data = self.encoded_images[image_idx]
 
             timestamp = datetime.now().isoformat()
             req_start = time.perf_counter()
@@ -609,9 +727,12 @@ class APIPerformanceTester:
             error = None
 
             try:
+                # Create message content (text or multimodal)
+                message_content = self.create_message_content(prompt, image_data)
+                
                 payload = {
                     "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
+                    "messages": [{"role": "user", "content": message_content}],
                     "stream": False
                 }
                 if self.request_options:
@@ -736,15 +857,49 @@ def run_benchmark(
     run_inference: bool = True,
     run_throughput: bool = True,
     host: str = "http://localhost:11434",
+    vision_mode: bool = False,
+    image_paths: Optional[List[str]] = None,
+    vision_prompts: Optional[List[str]] = None,
 ):
     """Run OpenAI-compatible API performance benchmark"""
 
     check_performance_settings()
 
-    # Get test prompts (modify if no_thinking is enabled)
-    test_prompts = TEST_PROMPTS
-    if no_thinking:
-        test_prompts = [f"/no_think {prompt}" for prompt in TEST_PROMPTS]
+    # Get test prompts
+    if vision_mode:
+        # Use vision-specific prompts
+        test_prompts = vision_prompts or DEFAULT_VISION_PROMPTS
+        if no_thinking:
+            test_prompts = [f"/no_think {prompt}" for prompt in test_prompts]
+    else:
+        # Use text prompts (modify if no_thinking is enabled)
+        test_prompts = TEST_PROMPTS
+        if no_thinking:
+            test_prompts = [f"/no_think {prompt}" for prompt in TEST_PROMPTS]
+    
+    # Validate vision mode requirements and use default images folder if needed
+    if vision_mode:
+        if not image_paths or len(image_paths) == 0:
+            # Try to use default images folder
+            default_images_dir = Path(__file__).parent / "images"
+            if default_images_dir.exists() and default_images_dir.is_dir():
+                # Find all supported image files
+                supported_extensions = ('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp')
+                default_images = [
+                    str(img) for img in sorted(default_images_dir.iterdir())
+                    if img.suffix.lower() in supported_extensions
+                ]
+                if default_images:
+                    image_paths = default_images
+                    print(f"📁 Using default images folder: {default_images_dir}")
+                    print(f"   Found {len(image_paths)} image(s): {', '.join([Path(p).name for p in image_paths])}")
+                else:
+                    print("❌ Error: No supported image files found in 'images' folder.")
+                    sys.exit(1)
+            else:
+                print("❌ Error: Vision mode requires at least one image. Use --image or --images.")
+                print("   Or place images in the 'images' folder (supported: .jpg, .jpeg, .png, .gif, .bmp, .webp)")
+                sys.exit(1)
 
     # Get default options for model, warn if not found
     if model in DEFAULT_OPTIONS_BY_MODEL:
@@ -770,8 +925,11 @@ def run_benchmark(
     print(f"Starting OpenAI-compatible API performance benchmark...")
     print(f"Logging all requests to: benchmark.jsonl")
     print(f"Testing API at {host}")
+    if vision_mode:
+        print(f"Vision mode: {len(image_paths)} image(s), {len(test_prompts)} prompt(s)")
 
-    tester = APIPerformanceTester(host, options=options)
+    tester = APIPerformanceTester(host, options=options, vision_mode=vision_mode, 
+                                  image_paths=image_paths, vision_prompts=test_prompts)
 
     if run_inference:
         inference_results = tester.benchmark_inference(model, test_prompts, iterations)
@@ -859,7 +1017,36 @@ if __name__ == "__main__":
         action="store_true",
         help="Run only the throughput benchmark (skip inference)."
     )
+    parser.add_argument(
+        "--vision",
+        action="store_true",
+        help="Enable vision-language model (VLM) mode for multimodal inputs."
+    )
+    parser.add_argument(
+        "--image",
+        type=str,
+        help="Single image file path for VLM testing."
+    )
+    parser.add_argument(
+        "--images",
+        type=str,
+        nargs="+",
+        help="Multiple image file paths for VLM testing (space-separated)."
+    )
+    parser.add_argument(
+        "--vision-prompts",
+        type=str,
+        nargs="+",
+        help="Custom prompts for vision testing (space-separated). If not provided, uses default vision prompts."
+    )
     args = parser.parse_args()
+    
+    # Process image paths
+    image_paths = []
+    if args.image:
+        image_paths.append(args.image)
+    if args.images:
+        image_paths.extend(args.images)
 
     # If neither flag is set, run both. If one or both are set, run only what's requested.
     run_inference = args.inference or not (args.inference or args.throughput)
@@ -883,4 +1070,7 @@ if __name__ == "__main__":
         run_inference=run_inference,
         run_throughput=run_throughput,
         host=args.host,
+        vision_mode=args.vision,
+        image_paths=image_paths if image_paths else None,
+        vision_prompts=args.vision_prompts,
     )
