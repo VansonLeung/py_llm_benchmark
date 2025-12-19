@@ -44,16 +44,22 @@ python3 benchmark.py qwen3:14b --host="http://192.168.1.100:11434" --iterations 
 
 ```bash
 # Benchmark VLM using default images folder (automatically uses images from ./images/)
+python3 benchmark.py qwen2.5-vl:7b --vision --iterations 10
+
+# Benchmark Qwen 2.5 VL with specific parameters
+python3 benchmark.py qwen2.5-vl:7b --vision --max-tokens 2048 --temperature 0.3 --iterations 20
+
+# Benchmark other VLMs (LLaVA, MiniCPM-V, etc.)
 python3 benchmark.py llava:7b --vision --iterations 10
 
 # Benchmark VLM with a single image
-python3 benchmark.py llava:7b --vision --image path/to/image.jpg --iterations 10
+python3 benchmark.py qwen2-vl:7b --vision --image path/to/image.jpg --iterations 10
 
 # Benchmark VLM with multiple images (cycles through them)
-python3 benchmark.py llava:13b --vision --images path/img1.jpg path/img2.png path/img3.jpg --concurrent 5
+python3 benchmark.py qwen2.5-vl:7b --vision --images path/img1.jpg path/img2.png path/img3.jpg --concurrent 5
 
 # Use custom vision prompts
-python3 benchmark.py minicpm-v:8b --vision --image photo.jpg --vision-prompts "Describe this image" "What objects are visible?" "What is the main subject?"
+python3 benchmark.py qwen2.5-vl:2b --vision --vision-prompts "Describe this image" "What objects are visible?" "What is the main subject?"
 ```
 
 ### Advanced Options
@@ -117,6 +123,12 @@ The tool includes optimized defaults for common models:
 | `qwen3:14b` | 512 | 0.45 | 0.88 | Large model |
 | `qwen3:30b` | 1024 | 0.4 | 0.85 | Very large model |
 | `qwen3:32b` | 1024 | 0.4 | 0.85 | Very large model |
+| `qwen2-vl:2b` | 512 | 0.5 | 0.9 | Vision model (small) |
+| `qwen2-vl:7b` | 1024 | 0.4 | 0.85 | Vision model (medium) |
+| `qwen2-vl:72b` | 2048 | 0.35 | 0.85 | Vision model (large) |
+| `qwen2.5-vl:2b` | 512 | 0.5 | 0.9 | Vision model (small) |
+| `qwen2.5-vl:7b` | 1024 | 0.4 | 0.85 | Vision model (medium) |
+| `qwen2.5-vl:72b` | 2048 | 0.35 | 0.85 | Vision model (large) |
 
 ## Output and Metrics
 
@@ -175,7 +187,7 @@ The tool supports vision-language models through the OpenAI-compatible messages 
 - Images are automatically encoded to base64 at initialization
 - Supports both single image and multi-image benchmarking
 - Cycles through images for iteration counts > image count
-- Compatible with models like LLaVA, MiniCPM-V, Qwen-VL, etc.
+- Compatible with models like Qwen 2.5 VL, Qwen2-VL, LLaVA, MiniCPM-V, and other vision-language models
 
 ### Vision Prompt Defaults
 
@@ -230,10 +242,10 @@ python3 benchmark.py qwen3:30b \
   --max-tokens 2048
 ```
 
-### Example 3: Vision Model Test (Using Default Images Folder)
+### Example 3: Qwen 2.5 VL Test (Using Default Images Folder)
 ```bash
 # Uses all images from ./images/ folder automatically
-python3 benchmark.py llava:13b \
+python3 benchmark.py qwen2.5-vl:7b \
   --vision \
   --iterations 30 \
   --concurrent 5
@@ -241,11 +253,12 @@ python3 benchmark.py llava:13b \
 
 ### Example 4: Vision Model Test (Custom Images)
 ```bash
-python3 benchmark.py llava:13b \
+python3 benchmark.py qwen2.5-vl:7b \
   --vision \
   --images test_images/*.jpg \
   --iterations 30 \
-  --concurrent 5
+  --concurrent 5 \
+  --max-tokens 2048
 ```
 
 ### Example 5: Inference-Only Profiling

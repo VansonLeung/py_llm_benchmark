@@ -69,6 +69,13 @@ DEFAULT_OPTIONS_BY_MODEL: Dict[str, Dict[str, Any]] = {
     "qwen3:32b": { "max_tokens": 1024, "temperature": 0.4, "top_p": 0.85, "frequency_penalty": 0.0, "presence_penalty": 0.0 },
     "qwen/qwen3-30b-a3b-2507": { "max_tokens": 1024, "temperature": 0.4, "top_p": 0.85, "frequency_penalty": 0.0, "presence_penalty": 0.0 },
     "alibayram/Qwen3-30B-A3B-Instruct-2507": { "max_tokens": 1024, "temperature": 0.4, "top_p": 0.85, "frequency_penalty": 0.0, "presence_penalty": 0.0 },
+    # Qwen 2.5 VL (Vision-Language Models)
+    "qwen2-vl:2b": { "max_tokens": 512, "temperature": 0.5, "top_p": 0.9, "frequency_penalty": 0.1, "presence_penalty": 0.05 },
+    "qwen2-vl:7b": { "max_tokens": 1024, "temperature": 0.4, "top_p": 0.85, "frequency_penalty": 0.05, "presence_penalty": 0.0 },
+    "qwen2-vl:72b": { "max_tokens": 2048, "temperature": 0.35, "top_p": 0.85, "frequency_penalty": 0.0, "presence_penalty": 0.0 },
+    "qwen2.5-vl:2b": { "max_tokens": 512, "temperature": 0.5, "top_p": 0.9, "frequency_penalty": 0.1, "presence_penalty": 0.05 },
+    "qwen2.5-vl:7b": { "max_tokens": 1024, "temperature": 0.4, "top_p": 0.85, "frequency_penalty": 0.05, "presence_penalty": 0.0 },
+    "qwen2.5-vl:72b": { "max_tokens": 2048, "temperature": 0.35, "top_p": 0.85, "frequency_penalty": 0.0, "presence_penalty": 0.0 },
 }
 
 # Test prompts, 150 in total (reordered for balanced throughput testing)
